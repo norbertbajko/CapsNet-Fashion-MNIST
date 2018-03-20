@@ -25,14 +25,12 @@ pip install tensorflow-gpu
 pip install keras
 ```
 
-<br/>
 **Step 2. Clone this repository to local**
 ```
 git clone https://github.com/norbertbajko/CapsNet-Fashion-MNIST.git
 cd CapsNet-Fashion-MNIST
 ```
 
-<br/>
 **Step 3. Train a CapsNet on Fashion-MNIST**  
 
 Training with default settings:
@@ -43,7 +41,6 @@ Data preprocessing:
 - scale pixel values to `[0,1]`
 - shift 2 pixels and horizontal flipping augmentation
 
-<br/>
 **Step 4. Test a pre-trained CapsNet model**
 
 ###### *My pre-trained model is not available at the moment, but will come soon.*
@@ -70,12 +67,10 @@ just change the code as you want.
 Losses and accuracies:   
 ![](result/log.png) -->
 
-<br/>
 **Training Speed**  
 
 About `175s / epoch` on a single Titan X (Pascal) GPU.   
 
-<br/>
 **Reconstruction results**  
 
 Top 5 rows are real images from Fashion-MNIST and
