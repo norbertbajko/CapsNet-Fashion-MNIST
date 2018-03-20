@@ -1,26 +1,33 @@
 """
 Keras implementation of CapsNet in Hinton's paper Dynamic Routing Between Capsules.
 The current version maybe only works for TensorFlow backend. Actually it will be straightforward to re-write to TF code.
-Adopting to other backends should be easy, but I have not tested this. 
+Adopting to other backends should be easy, but I have not tested this.
 
 Usage:
        python CapsNet.py
        python CapsNet.py --epochs 100
        python CapsNet.py --epochs 100 --num_routing 3
        ... ...
-       
+
 Result:
     Validation accuracy > 99.5% after 20 epochs. Converge to 99.66% after 50 epochs.
     About 110 seconds per epoch on a single GTX1070 GPU card
-    
+
 Author: Xifeng Guo, E-mail: `guoxifeng1990@163.com`, Github: `https://github.com/XifengGuo/CapsNet-Keras`
 """
 
+import os
+
 import numpy as np
-from keras import layers, models, optimizers
 from keras import backend as K
+from keras import layers, models, optimizers
 from keras.utils import to_categorical
-from capsulelayers import CapsuleLayer, PrimaryCap, Length, Mask
+from PIL import Image
+
+from capsulelayers import CapsuleLayer, Length, Mask, PrimaryCap
+from utils import combine_images
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 K.set_image_data_format('channels_last')
 
@@ -57,7 +64,7 @@ def CapsNet(input_shape, n_class, num_routing):
 
     # Shared Decoder model in training and prediction
     decoder = models.Sequential(name='decoder')
-    decoder.add(layers.Dense(512, activation='relu', input_dim=16*n_class))
+    decoder.add(layers.Dense(512, activation='relu', input_dim=16 * n_class))
     decoder.add(layers.Dense(1024, activation='relu'))
     decoder.add(layers.Dense(np.prod(input_shape), activation='sigmoid'))
     decoder.add(layers.Reshape(target_shape=input_shape, name='out_recon'))
@@ -65,7 +72,13 @@ def CapsNet(input_shape, n_class, num_routing):
     # Models for training and evaluation (prediction)
     train_model = models.Model([x, y], [out_caps, decoder(masked_by_y)])
     eval_model = models.Model(x, [out_caps, decoder(masked)])
-    return train_model, eval_model
+
+    # manipulate model
+    noise = layers.Input(shape=(n_class, 16))
+    noised_digitcaps = layers.Add()([digitcaps, noise])
+    masked_noised_y = Mask()([noised_digitcaps, y])
+    manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
+    return train_model, eval_model, manipulate_model
 
 
 def margin_loss(y_true, y_pred):
@@ -142,26 +155,53 @@ def train(model, data, args):
 def test(model, data):
     x_test, y_test = data
     y_pred, x_recon = model.predict(x_test, batch_size=100)
-    print('-'*50)
-    print('Test acc:', np.sum(np.argmax(y_pred, 1) == np.argmax(y_test, 1))/y_test.shape[0])
+    print('-' * 50)
+    print('Test acc:', np.sum(np.argmax(y_pred, 1) == np.argmax(y_test, 1)) / y_test.shape[0])
 
     import matplotlib.pyplot as plt
     from utils import combine_images
     from PIL import Image
 
-    img = combine_images(np.concatenate([x_test[:50],x_recon[:50]]))
+    img = combine_images(np.concatenate([x_test[:50], x_recon[:50]]))
     image = img * 255
     Image.fromarray(image.astype(np.uint8)).save("real_and_recon.png")
     print()
     print('Reconstructed images are saved to ./real_and_recon.png')
-    print('-'*50)
+    print('-' * 50)
     plt.imshow(plt.imread("real_and_recon.png", ))
     plt.show()
 
 
+def manipulate_latent(model, data, args):
+    print('-' * 30 + 'Begin: manipulate' + '-' * 30)
+    for digit in range(10):
+        for version in range(10):
+            x_test, y_test = data
+            index = np.argmax(y_test, 1) == digit
+            number = np.random.randint(low=0, high=sum(index) - 1)
+            x, y = x_test[index][number], y_test[index][number]
+            x, y = np.expand_dims(x, 0), np.expand_dims(y, 0)
+            noise = np.zeros([1, 10, 16])
+            x_recons = []
+            for dim in range(16):
+                for r in [-0.25, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25]:
+                    tmp = np.copy(noise)
+                    tmp[:, :, dim] = r
+                    x_recon = model.predict([x, y, tmp])
+                    x_recons.append(x_recon)
+
+            x_recons = np.concatenate(x_recons)
+
+            img = combine_images(x_recons, height=16)
+            image = img * 255
+            Image.fromarray(image.astype(np.uint8)).save(args.save_dir + '/manipulate-%d-%d.png' % (digit, version))
+            print('manipulated result saved to %s/manipulate-%d-%d.png' % (args.save_dir, digit, version))
+    print('-' * 30 + 'End: manipulate' + '-' * 30)
+
+
 def load_mnist():
     # the data, shuffled and split between train and test sets
-    from keras.datasets import mnist, fashion_mnist
+    from keras.datasets import fashion_mnist
     (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
 
     x_train = x_train.reshape(-1, 28, 28, 1).astype('float32') / 255.
@@ -172,14 +212,13 @@ def load_mnist():
 
 
 if __name__ == "__main__":
-    import os
     from keras.preprocessing.image import ImageDataGenerator
     from keras import callbacks
 
     # setting the hyper parameters
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', default=100, type=int)
+    parser.add_argument('--batch_size', default=128, type=int)
     parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--lam_recon', default=0.392, type=float)  # 784 * 0.0005, paper uses sum of SE, here uses MSE
     parser.add_argument('--num_routing', default=3, type=int)  # num_routing should > 0
@@ -189,6 +228,8 @@ if __name__ == "__main__":
     parser.add_argument('--is_training', default=1, type=int)
     parser.add_argument('--weights', default=None)
     parser.add_argument('--lr', default=0.001, type=float)
+    parser.add_argument('--digit', default=5, type=int,
+                        help="Digit to manipulate")
     args = parser.parse_args()
     print(args)
     if not os.path.exists(args.save_dir):
@@ -198,9 +239,9 @@ if __name__ == "__main__":
     (x_train, y_train), (x_test, y_test) = load_mnist()
 
     # define model
-    model, eval_model = CapsNet(input_shape=x_train.shape[1:],
-                                n_class=len(np.unique(np.argmax(y_train, 1))),
-                                num_routing=args.num_routing)
+    model, eval_model, manipulate_model = CapsNet(input_shape=x_train.shape[1:],
+                                                  n_class=len(np.unique(np.argmax(y_train, 1))),
+                                                  num_routing=args.num_routing)
     model.summary()
 
     # train or test
@@ -211,4 +252,5 @@ if __name__ == "__main__":
     else:  # as long as weights are given, will run testing
         if args.weights is None:
             print('No weights are provided. Will test using random initialized weights.')
+        manipulate_latent(manipulate_model, (x_test, y_test), args)
         test(model=eval_model, data=(x_test, y_test))

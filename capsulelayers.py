@@ -1,5 +1,5 @@
 """
-Some key layers used for constructing a Capsule Network. These layers can used to construct CapsNet on other dataset, 
+Some key layers used for constructing a Capsule Network. These layers can used to construct CapsNet on other dataset,
 not just on MNIST.
 *NOTE*: some functions can be implemented in multiple ways, I keep all of them. You can try them for yourself just by
 uncommenting them and commenting their counterparts.
@@ -19,6 +19,7 @@ class Length(layers.Layer):
     inputs: shape=[None, num_vectors, dim_vector]
     output: shape=[None, num_vectors]
     """
+
     def call(self, inputs, **kwargs):
         return K.sqrt(K.sum(K.square(inputs), -1))
 
@@ -28,7 +29,7 @@ class Length(layers.Layer):
 
 class Mask(layers.Layer):
     """
-    Mask a Tensor with shape=[None, num_capsule, dim_vector] either by the capsule with max length or by an additional 
+    Mask a Tensor with shape=[None, num_capsule, dim_vector] either by the capsule with max length or by an additional
     input mask. Except the max-length capsule (or specified capsule), all vectors are masked to zeros. Then flatten the
     masked Tensor.
     For example:
@@ -40,6 +41,7 @@ class Mask(layers.Layer):
         out2 = Mask()([x, y])  # out2.shape=[8,6]. Masked with true labels y. Of course y can also be manipulated.
         ```
     """
+
     def call(self, inputs, **kwargs):
         if type(inputs) is list:  # true label is provided with shape = [None, n_classes], i.e. one-hot code.
             assert len(inputs) == 2
@@ -78,15 +80,16 @@ def squash(vectors, axis=-1):
 
 class CapsuleLayer(layers.Layer):
     """
-    The capsule layer. It is similar to Dense layer. Dense layer has `in_num` inputs, each is a scalar, the output of the 
+    The capsule layer. It is similar to Dense layer. Dense layer has `in_num` inputs, each is a scalar, the output of the
     neuron from the former layer, and it has `out_num` output neurons. CapsuleLayer just expand the output of the neuron
     from scalar to vector. So its input shape = [None, input_num_capsule, input_dim_capsule] and output shape = \
     [None, num_capsule, dim_capsule]. For Dense Layer, input_dim_capsule = dim_capsule = 1.
-    
+
     :param num_capsule: number of capsules in this layer
     :param dim_capsule: dimension of the output vectors of the capsules in this layer
     :param num_routing: number of iterations for the routing algorithm
     """
+
     def __init__(self, num_capsule, dim_capsule, num_routing=3,
                  kernel_initializer='glorot_uniform',
                  **kwargs):
@@ -150,7 +153,7 @@ class CapsuleLayer(layers.Layer):
         # In forward pass, `inputs_hat_stopped` = `inputs_hat`;
         # In backward, no gradient can flow from `inputs_hat_stopped` back to `inputs_hat`.
         inputs_hat_stopped = K.stop_gradient(inputs_hat)
-        
+
         # The prior for coupling coefficient, initialized as zeros.
         # b.shape = [None, self.num_capsule, self.input_num_capsule].
         b = tf.zeros(shape=[K.shape(inputs_hat)[0], self.num_capsule, self.input_num_capsule])
@@ -193,7 +196,7 @@ def PrimaryCap(inputs, dim_capsule, n_channels, kernel_size, strides, padding):
     :param n_channels: the number of types of capsules
     :return: output tensor, shape=[None, num_capsule, dim_capsule]
     """
-    output = layers.Conv2D(filters=dim_capsule*n_channels, kernel_size=kernel_size, strides=strides, padding=padding,
+    output = layers.Conv2D(filters=dim_capsule * n_channels, kernel_size=kernel_size, strides=strides, padding=padding,
                            name='primarycap_conv2d')(inputs)
     outputs = layers.Reshape(target_shape=[-1, dim_capsule], name='primarycap_reshape')(output)
     return layers.Lambda(squash, name='primarycap_squash')(outputs)
